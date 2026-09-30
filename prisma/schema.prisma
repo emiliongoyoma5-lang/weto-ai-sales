@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id           String         @id @default(uuid())
+  name         String
+  currency     String         @default("AOA")
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  channels     Channel[]
+  customers    Customer[]
+  conversations Conversation[]
+  orders        Order[]
+  products     Product[]
+  memories     CustomerMemory[]
+  opportunities SalesOpportunity[]
+}
+
+enum ChannelType {
+  WHATSAPP
+  INSTAGRAM
+  MESSENGER
+  WEBSITE_CHAT
+}
+
+model Channel {
+  id          String       @id @default(uuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type        ChannelType
+  externalId  String
+  displayName String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  conversations Conversation[]
+  whatsappConfig WhatsAppChannelConfig?
+
+  @@unique([tenantId, type, externalId])
+  @@index([tenantId, type])
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String?
+  phone         String?
+  email         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+  orders        Order[]
+  memories      CustomerMemory[]
+  opportunities SalesOpportunity[]
+
+  @@index([tenantId, phone])
+  @@index([tenantId, email])
+}
+
+enum ConversationStatus {
+  AI_HANDLING
+  HUMAN_HANDLING
+  CLOSED
+}
+
+model Conversation {
+  id          String             @id @default(uuid())
+  tenantId    String
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  channelId   String
+  channel     Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  status      ConversationStatus @default(AI_HANDLING)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  messages    Message[]
+  orders      Order[]
+  opportunities SalesOpportunity[]
+
+  @@index([tenantId, status])
+  @@index([customerId, channelId])
+}
+
+enum MessageSender {
+  CUSTOMER
+  AI
+  AGENT
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  DOCUMENT
+  UNKNOWN
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  externalId     String?
+  sender         MessageSender
+  type           MessageType   @default(TEXT)
+  content        String?
+  mediaUrl       String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  @@unique([conversationId, externalId])
+  @@index([conversationId, createdAt])
+}
+
+model WhatsAppChannelConfig {
+  channelId   String   @id
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  accessToken String
+  verifyToken String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Product {
+  id          String          @id @default(uuid())
+  tenantId    String
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  sku         String?
+  basePrice   Decimal         @db.Decimal(14, 2)
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  inventory   Inventory?
+  orderItems  OrderItem[]
+  opportunities SalesOpportunity[]
+
+  @@index([tenantId, active])
+  @@index([tenantId, sku])
+}
+
+model Inventory {
+  id          String   @id @default(uuid())
+  productId   String   @unique
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+}
+
+
+enum OrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  CANCELLED
+}
+
+model Order {
+  id             String      @id @default(uuid())
+  tenantId       String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  status         OrderStatus @default(PENDING_CONFIRMATION)
+  total          Decimal     @db.Decimal(14, 2)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  items          OrderItem[]
+
+  @@index([tenantId, customerId, status])
+  @@index([conversationId, status])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int
+  unitPrice Decimal  @db.Decimal(14, 2)
+  subtotal  Decimal  @db.Decimal(14, 2)
+
+  @@index([orderId])
+}
+
+
+enum CustomerMemoryType {
+  PREFERENCE
+  PROFILE
+  NEED
+  CONTEXT
+  COMMERCIAL
+}
+
+model CustomerMemory {
+  id          String             @id @default(uuid())
+  tenantId    String
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type        CustomerMemoryType
+  key         String
+  value       String
+  source      String?
+  confidence  Float              @default(1)
+  expiresAt   DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([customerId, type, key])
+  @@index([tenantId, customerId, updatedAt])
+}
+
+enum OpportunityStatus {
+  OPEN
+  WON
+  LOST
+  DISMISSED
+}
+
+model SalesOpportunity {
+  id             String             @id @default(uuid())
+  tenantId       String
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer      Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   Conversation?       @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  productId      String?
+  product        Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  status         OpportunityStatus  @default(OPEN)
+  reason         String?
+  lastActivityAt DateTime           @default(now())
+  nextFollowUpAt DateTime?
+  followUpAttempts Int @default(0)
+  lastFollowUpAt DateTime?
+  followUpSendingAt DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([tenantId, status, nextFollowUpAt])
+  @@index([customerId, status])
+}
